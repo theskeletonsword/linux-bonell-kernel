@@ -235,7 +235,6 @@ static void lbtf_submit_command(struct lbtf_private *priv,
 	unsigned long flags;
 	struct cmd_header *cmd;
 	uint16_t cmdsize;
-	uint16_t command;
 	int timeo = 5 * HZ;
 	int ret;
 
@@ -246,10 +245,10 @@ static void lbtf_submit_command(struct lbtf_private *priv,
 	spin_lock_irqsave(&priv->driver_lock, flags);
 	priv->cur_cmd = cmdnode;
 	cmdsize = le16_to_cpu(cmd->size);
-	command = le16_to_cpu(cmd->command);
 
 	lbtf_deb_cmd("DNLD_CMD: command 0x%04x, seq %d, size %d\n",
-		     command, le16_to_cpu(cmd->seqnum), cmdsize);
+		     le16_to_cpu(cmd->command), le16_to_cpu(cmd->seqnum),
+		     cmdsize);
 	lbtf_deb_hex(LBTF_DEB_CMD, "DNLD_CMD", (void *) cmdnode->cmdbuf, cmdsize);
 
 	ret = priv->ops->hw_host_to_card(priv, MVMS_CMD, (u8 *)cmd, cmdsize);
@@ -560,7 +559,6 @@ static struct cmd_ctrl_node *lbtf_get_cmd_ctrl_node(struct lbtf_private *priv)
 int lbtf_execute_next_command(struct lbtf_private *priv)
 {
 	struct cmd_ctrl_node *cmdnode = NULL;
-	struct cmd_header *cmd;
 	unsigned long flags;
 	int ret = 0;
 
@@ -584,11 +582,9 @@ int lbtf_execute_next_command(struct lbtf_private *priv)
 	}
 
 	if (cmdnode) {
-		cmd = cmdnode->cmdbuf;
-
 		list_del(&cmdnode->list);
 		lbtf_deb_host("EXEC_NEXT_CMD: sending command 0x%04x\n",
-			    le16_to_cpu(cmd->command));
+			    le16_to_cpu(cmdnode->cmdbuf->command));
 		spin_unlock_irqrestore(&priv->driver_lock, flags);
 		lbtf_submit_command(priv, cmdnode);
 	} else

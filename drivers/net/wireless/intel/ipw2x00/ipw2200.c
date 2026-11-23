@@ -2787,7 +2787,7 @@ static int ipw_fw_dma_kick(struct ipw_priv *priv)
 static void ipw_fw_dma_dump_command_block(struct ipw_priv *priv)
 {
 	u32 address;
-	u32 register_value = 0;
+	u32 register_value __maybe_unused = 0;
 	u32 cb_fields_address = 0;
 
 	IPW_DEBUG_FW(">> :\n");
@@ -7112,7 +7112,7 @@ static int ipw_is_qos_active(struct net_device *dev,
 {
 	struct ipw_priv *priv = libipw_priv(dev);
 	struct libipw_qos_data *qos_data = NULL;
-	int active, supported;
+	int active;
 	u8 *daddr = skb->data + ETH_ALEN;
 	int unicast = !is_multicast_ether_addr(daddr);
 
@@ -7128,10 +7128,10 @@ static int ipw_is_qos_active(struct net_device *dev,
 			qos_data->active = qos_data->supported;
 	}
 	active = qos_data->active;
-	supported = qos_data->supported;
 	IPW_DEBUG_QOS("QoS  %d network is QoS active %d  supported %d  "
 		      "unicast %d\n",
-		      priv->qos_data.qos_enable, active, supported, unicast);
+		      priv->qos_data.qos_enable, active, qos_data->supported,
+		      unicast);
 	if (active && priv->qos_data.qos_enable)
 		return 1;
 

@@ -1972,7 +1972,7 @@ static void isr_indicate_associated(struct ipw2100_priv *priv, u32 status)
 	char essid[IW_ESSID_MAX_SIZE];
 	u32 txrate;
 	u32 chan;
-	char *txratename;
+	char *txratename __maybe_unused;
 	u8 bssid[ETH_ALEN];
 
 	/*

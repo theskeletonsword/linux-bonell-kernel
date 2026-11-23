@@ -548,7 +548,6 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 	int bsssize;
 	const u8 *pos;
 	const u8 *tsfdesc;
-	int tsfsize;
 	int i;
 	int ret = -EILSEQ;
 
@@ -593,8 +592,8 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 		    bsssize);
 
 	tsfdesc = pos + bsssize;
-	tsfsize = 4 + 8 * scanresp->nr_sets;
-	lbs_deb_hex(LBS_DEB_SCAN, "SCAN_TSF", (u8 *) tsfdesc, tsfsize);
+	lbs_deb_hex(LBS_DEB_SCAN, "SCAN_TSF", (u8 *)tsfdesc,
+		    4 + 8 * scanresp->nr_sets);
 
 	/* Validity check: we expect a Marvell-Local TLV */
 	i = get_unaligned_le16(tsfdesc);
@@ -626,8 +625,8 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 		u16 intvl;
 		u16 capa;
 		int chan_no = -1;
-		const u8 *ssid = NULL;
-		u8 ssid_len = 0;
+		const u8 *ssid __maybe_unused = NULL;
+		u8 ssid_len __maybe_unused = 0;
 
 		int len = get_unaligned_le16(pos);
 		pos += 2;
@@ -1121,7 +1120,7 @@ static int lbs_associate(struct lbs_private *priv,
 	int status;
 	int ret;
 	u8 *pos;
-	u8 *tmp;
+	u8 *tmp __maybe_unused;
 
 	if (!cmd) {
 		ret = -ENOMEM;

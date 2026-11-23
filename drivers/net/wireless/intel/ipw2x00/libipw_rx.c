@@ -328,7 +328,7 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	struct net_device *dev = ieee->dev;
 	struct libipw_hdr_4addr *hdr;
 	size_t hdrlen;
-	u16 fc, type, stype, sc;
+	u16 fc, stype, sc;
 	unsigned int frag;
 	u8 *payload;
 	u16 ethertype;
@@ -353,7 +353,6 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	}
 
 	fc = le16_to_cpu(hdr->frame_ctl);
-	type = WLAN_FC_GET_TYPE(fc);
 	stype = WLAN_FC_GET_STYPE(fc);
 	sc = le16_to_cpu(hdr->seq_ctl);
 	frag = WLAN_GET_SEQ_FRAG(sc);
@@ -557,7 +556,7 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 			LIBIPW_DEBUG_DROP("RX: dropped data frame "
 					     "with no data (type=0x%02x, "
 					     "subtype=0x%02x, len=%d)\n",
-					     type, stype, skb->len);
+					     WLAN_FC_GET_TYPE(fc), stype, skb->len);
 		goto rx_dropped;
 	}
 

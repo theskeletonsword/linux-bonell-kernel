@@ -1417,7 +1417,6 @@ void b43_dma_handle_txstatus(struct b43_wldev *dev,
 	static const struct b43_txstatus fake; /* filled with 0 */
 	const struct b43_txstatus *txstat;
 	int slot, firstused;
-	bool frame_succeed;
 	int skip;
 	static u8 err_out1;
 
@@ -1519,14 +1518,14 @@ void b43_dma_handle_txstatus(struct b43_wldev *dev,
 			else
 				txstat = status;
 
-			frame_succeed = b43_fill_txstatus_report(dev, info,
-								 txstat);
 #ifdef CONFIG_B43_DEBUG
-			if (frame_succeed)
+			if (b43_fill_txstatus_report(dev, info, txstat))
 				ring->nr_succeed_tx_packets++;
 			else
 				ring->nr_failed_tx_packets++;
 			ring->nr_total_packet_tries += status->frame_count;
+#else
+			b43_fill_txstatus_report(dev, info, txstat);
 #endif /* DEBUG */
 			ieee80211_tx_status_skb(dev->wl->hw, meta->skb);
 

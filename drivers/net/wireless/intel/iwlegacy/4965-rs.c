@@ -1627,9 +1627,7 @@ il4965_rs_stay_in_table(struct il_lq_sta *lq_sta, bool force_search)
 	int i;
 	int active_tbl;
 	int flush_interval_passed = 0;
-	struct il_priv *il;
 
-	il = lq_sta->drv;
 	active_tbl = lq_sta->active_tbl;
 
 	tbl = &(lq_sta->lq_info[active_tbl]);
@@ -2248,9 +2246,7 @@ il4965_rs_alloc_sta(void *il_rate, struct ieee80211_sta *sta, gfp_t gfp)
 {
 	struct il_station_priv *sta_priv =
 	    (struct il_station_priv *)sta->drv_priv;
-	struct il_priv *il;
 
-	il = (struct il_priv *)il_rate;
 	D_RATE("create station rate scale win\n");
 
 	return &sta_priv->lq_sta;
@@ -2527,12 +2523,10 @@ il4965_rs_sta_dbgfs_scale_table_write(struct file *file,
 				      size_t count, loff_t *ppos)
 {
 	struct il_lq_sta *lq_sta = file->private_data;
-	struct il_priv *il;
 	char buf[64];
 	size_t buf_size;
 	u32 parsed_rate;
 
-	il = lq_sta->drv;
 	memset(buf, 0, sizeof(buf));
 	buf_size = min(count, sizeof(buf) - 1);
 	if (copy_from_user(buf, user_buf, buf_size))
