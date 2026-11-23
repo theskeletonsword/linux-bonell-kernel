@@ -237,8 +237,10 @@ config X86_MARCH_BONNELL
 	help
 	  Generate code for the in-order, dual-issue Intel Atom "Bonnell"
 	  core in its 64-bit capable parts (Diamondville/Pineview: Atom
-	  230/330, N4xx, N5xx, D4xx, D5xx; CPUID family 6 model 0x1c) using
-	  -march=bonnell -mtune=bonnell.
+	  230/330, N4xx, N5xx, D4xx, D5xx; CPUID family 6 model 0x1c) and its
+	  32 nm Saltwell shrink with the same ISA (Cedarview: Atom D2xxx,
+	  N2xxx; model 0x36) using -march=bonnell -mtune=bonnell. All of them
+	  are NO_SPECULATION in the CPU vulnerability whitelist.
 
 	  Kernel code stays free of SSE/AVX as on every x86 build: the
 	  -mno-sse/-mno-mmx/-mno-avx flags in arch/x86/Makefile take
