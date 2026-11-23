@@ -14,6 +14,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+/*
+ * <asm/insn.h> pulls in the raw include/uapi byteorder/swab headers, which
+ * use __attribute_const__. glibc happens to define it in <sys/cdefs.h>,
+ * musl does not; tools/include/linux/compiler.h provides it for both.
+ */
+#include <linux/compiler.h>
 #include <asm/insn.h>
 #include <inat.c>
 #include <insn.c>

@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <linux/kallsyms.h>
+/* __attribute_const__ for the raw UAPI headers on musl, see insn_sanity.c */
+#include <linux/compiler.h>
 
 #include <asm/insn.h>
 #include <inat.c>
