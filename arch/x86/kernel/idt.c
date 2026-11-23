@@ -175,6 +175,18 @@ static const __initconst struct idt_data apic_idts[] = {
 /* Must be page-aligned because the real IDT is used in the cpu entry area */
 static gate_desc idt_table[IDT_ENTRIES] __page_aligned_bss;
 
+/*
+ * Cache-line layout of the IDT (64-byte L1 lines on Bonnell). Page
+ * alignment implies line alignment, so no 16-byte gate straddles a line and
+ * the 256 gates fill exactly IDT_TABLE_SIZE / L1_CACHE_BYTES lines; the
+ * external-vector entry stubs are IDT_ALIGN bytes each (8 without IBT), so
+ * none of them straddles a line either. Enforce it at build time.
+ */
+static_assert(__alignof__(idt_table) >= L1_CACHE_BYTES);
+static_assert(L1_CACHE_BYTES % sizeof(gate_desc) == 0);
+static_assert(IDT_TABLE_SIZE % L1_CACHE_BYTES == 0);
+static_assert(L1_CACHE_BYTES % IDT_ALIGN == 0);
+
 static struct desc_ptr idt_descr __ro_after_init = {
 	.size		= IDT_TABLE_SIZE - 1,
 	.address	= (unsigned long) idt_table,
@@ -229,6 +241,40 @@ void __init idt_setup_early_traps(void)
 	load_idt(&idt_descr);
 }
 
+#ifdef CONFIG_X86_64
+/*
+ * #DF, NMI, #DB and #MC must run on their dedicated IST stacks: a #DF
+ * delivered on an overflowed task stack would escalate straight into a
+ * triple fault. Check the gates that idt_setup_traps() just installed.
+ */
+static void __init idt_check_ist_gates(void)
+{
+	static const struct {
+		u8 vector;
+		u8 ist;
+	} want[] __initconst = {
+		{ X86_TRAP_DF,	IST_INDEX_DF + 1 },
+		{ X86_TRAP_NMI,	IST_INDEX_NMI + 1 },
+		{ X86_TRAP_DB,	IST_INDEX_DB + 1 },
+#ifdef CONFIG_X86_MCE
+		{ X86_TRAP_MC,	IST_INDEX_MCE + 1 },
+#endif
+	};
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(want); i++) {
+		const gate_desc *g = &idt_table[want[i].vector];
+
+		if (g->bits.ist != want[i].ist || !g->bits.p)
+			pr_crit("IDT: vector %u has IST %u (present %u), expected IST %u\n",
+				want[i].vector, g->bits.ist, g->bits.p,
+				want[i].ist);
+	}
+}
+#else
+static inline void idt_check_ist_gates(void) { }
+#endif
+
 /**
  * idt_setup_traps - Initialize the idt table with default traps
  */
@@ -238,6 +284,8 @@ void __init idt_setup_traps(void)
 
 	if (ia32_enabled())
 		idt_setup_from_table(idt_table, ia32_idt, ARRAY_SIZE(ia32_idt), true);
+
+	idt_check_ist_gates();
 }
 
 #ifdef CONFIG_X86_64

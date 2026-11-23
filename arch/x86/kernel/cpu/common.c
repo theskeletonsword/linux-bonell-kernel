@@ -255,6 +255,27 @@ EXPORT_PER_CPU_SYMBOL_GPL(gdt_page);
 SYM_PIC_ALIAS(gdt_page);
 
 #ifdef CONFIG_X86_64
+/*
+ * Cache-line layout of the 64-bit GDT (16 x 8 bytes = two 64-byte lines on
+ * Bonnell and every other x86-64 core). The descriptors the CPU reads on
+ * interrupt/exception delivery and on IRET (kernel CS/DS, user CS/DS and
+ * compat user CS) all live in the first line of the page aligned GDT, so
+ * entering or leaving the kernel touches exactly one GDT line. TSS, LDT,
+ * TLS and CPUNODE (LTR, context switch, vgetcpu) use the second line.
+ * Enforce this at build time so it cannot regress silently.
+ */
+#define GDT_HOT_LIMIT	(L1_CACHE_BYTES / sizeof(struct desc_struct))
+static_assert(__alignof__(struct gdt_page) >= L1_CACHE_BYTES);
+static_assert(GDT_ENTRY_KERNEL32_CS < GDT_HOT_LIMIT);
+static_assert(GDT_ENTRY_KERNEL_CS < GDT_HOT_LIMIT);
+static_assert(GDT_ENTRY_KERNEL_DS < GDT_HOT_LIMIT);
+static_assert(GDT_ENTRY_DEFAULT_USER32_CS < GDT_HOT_LIMIT);
+static_assert(GDT_ENTRY_DEFAULT_USER_DS < GDT_HOT_LIMIT);
+static_assert(GDT_ENTRY_DEFAULT_USER_CS < GDT_HOT_LIMIT);
+#undef GDT_HOT_LIMIT
+#endif
+
+#ifdef CONFIG_X86_64
 static int __init x86_nopcid_setup(char *s)
 {
 	/* nopcid doesn't accept parameters */
@@ -1480,6 +1501,20 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 
 	if (cpu_matches(cpu_vuln_whitelist, NO_SPECULATION))
 		return;
+
+	/*
+	 * A kernel built for Intel Atom Bonnell is meant to have
+	 * CPU_MITIGATIONS=n: Bonnell is an in-order core listed as
+	 * NO_SPECULATION above and needs none of those mitigations. Getting
+	 * here means this CPU does speculate while the kernel carries no
+	 * protection for it, so refuse to stay quiet about it.
+	 */
+	if (IS_ENABLED(CONFIG_X86_MARCH_BONNELL) &&
+	    !IS_ENABLED(CONFIG_CPU_MITIGATIONS)) {
+		pr_crit("x86/CPU: Bonnell kernel without CPU mitigations on a speculative CPU (vfm 0x%x): speculative execution attacks are NOT mitigated\n",
+			c->x86_vfm);
+		add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
+	}
 
 	setup_force_cpu_bug(X86_BUG_SPECTRE_V1);
 
