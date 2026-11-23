@@ -194,3 +194,12 @@ sphinx_*/
 
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
+
+#
+# Bonnell/perex fork: deliverables, old build outputs and local inputs
+# (bonnell/configs/ holds the committed copies of atom.config/atom.lsmod)
+#
+/out/
+/out-atom/
+/atom.config
+/atom.lsmod
