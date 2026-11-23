@@ -392,15 +392,15 @@ void ath9k_tasklet(struct tasklet_struct *t)
 	ath9k_ps_wakeup(sc);
 	spin_lock(&sc->sc_pcu_lock);
 
-	if (status & ATH9K_INT_FATAL) {
+	if (unlikely(status & ATH9K_INT_FATAL)) {
 		type = RESET_TYPE_FATAL_INT;
 		ath9k_queue_reset(sc, type);
 		ath_dbg(common, RESET, "FATAL: Skipping interrupts\n");
 		goto out;
 	}
 
-	if ((ah->config.hw_hang_checks & HW_BB_WATCHDOG) &&
-	    (status & ATH9K_INT_BB_WATCHDOG)) {
+	if (unlikely((ah->config.hw_hang_checks & HW_BB_WATCHDOG) &&
+		     (status & ATH9K_INT_BB_WATCHDOG))) {
 		spin_lock_irqsave(&common->cc_lock, flags);
 		ath_hw_cycle_counters_update(common);
 		ar9003_hw_bb_watchdog_dbg_info(ah);
@@ -416,7 +416,7 @@ void ath9k_tasklet(struct tasklet_struct *t)
 		}
 	}
 
-	if (status & ATH9K_INT_GTT) {
+	if (unlikely(status & ATH9K_INT_GTT)) {
 		sc->gtt_cnt++;
 
 		if ((sc->gtt_cnt >= MAX_GTT_CNT) && !ath9k_hw_check_alive(ah)) {
@@ -532,7 +532,7 @@ irqreturn_t ath_isr(int irq, void *dev)
 	ath9k_debug_sync_cause(sc, sync_cause);
 	status &= ah->imask;	/* discard unasked-for bits */
 
-	if (test_bit(ATH_OP_HW_RESET, &common->op_flags)) {
+	if (unlikely(test_bit(ATH_OP_HW_RESET, &common->op_flags))) {
 		ath9k_hw_kill_interrupts(sc->sc_ah);
 		return IRQ_HANDLED;
 	}
@@ -556,11 +556,11 @@ irqreturn_t ath_isr(int irq, void *dev)
 	 * If a FATAL interrupt is received, we have to reset the chip
 	 * immediately.
 	 */
-	if (status & ATH9K_INT_FATAL)
+	if (unlikely(status & ATH9K_INT_FATAL))
 		goto chip_reset;
 
-	if ((ah->config.hw_hang_checks & HW_BB_WATCHDOG) &&
-	    (status & ATH9K_INT_BB_WATCHDOG))
+	if (unlikely((ah->config.hw_hang_checks & HW_BB_WATCHDOG) &&
+		     (status & ATH9K_INT_BB_WATCHDOG)))
 		goto chip_reset;
 
 	if (status & ATH9K_INT_SWBA)
