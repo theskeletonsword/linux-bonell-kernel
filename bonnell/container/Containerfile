@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Hermetic Alpine Linux (musl) build/test environment for the
+# Intel Atom Bonnell (N450, "perex") kernel.
+#
+# Pinned by digest (Alpine 3.24.4) so the toolchain (GCC 15.2, binutils,
+# musl) is reproducible. Build with:
+#   podman build -t localhost/bonnell-kbuild:3.24.4 -f bonnell/container/Containerfile bonnell/container
+FROM docker.io/library/alpine@sha256:0f49f331d9212aff11b932863be4eb01cdf962969aa86dab7d1ee21ac6f5f52b
+
+# Kernel build: build-base (gcc, binutils, make, musl-dev), bc, flex, bison,
+#   elfutils-dev (objtool/libelf), openssl-dev (sign-file, certs), perl, cpio,
+#   GNU userland pieces kbuild scripts rely on (bash, gawk, sed, grep, findutils,
+#   diffutils, coreutils, tar), compressors, gmp/mpc/mpfr headers for the
+#   GCC plugins (CONFIG_GCC_PLUGIN_LATENT_ENTROPY hardening), and rsync,
+#   which "make headers_install" uses to populate INSTALL_HDR_PATH.
+# Packaging/test: kmod (depmod/modinfo), busybox-static (initramfs),
+#   qemu-system-x86_64 (boot validation), python3 (a few kbuild helpers and
+#   the QEMU log analyser), file, e2fsprogs (ext4 test disk for QEMU).
+RUN apk add --no-cache \
+	build-base bc flex bison elfutils-dev openssl openssl-dev perl cpio \
+	gmp-dev mpc1-dev mpfr-dev rsync \
+	linux-headers bash gawk sed grep findutils diffutils coreutils tar \
+	gzip xz zstd lz4 kmod busybox-static qemu-system-x86_64 python3 file \
+	e2fsprogs \
+	util-linux-misc
+
+ENV KBUILD_BUILD_USER=bonnell KBUILD_BUILD_HOST=alpine-musl LANG=C.UTF-8
+WORKDIR /src

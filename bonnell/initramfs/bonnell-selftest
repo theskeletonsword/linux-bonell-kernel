@@ -1,0 +1,104 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+#
+# Non-interactive self test run by /init when booted with bonnell.autotest=1
+# (QEMU validation). Every result line starts with "BT " so the host side
+# can parse the serial log; BT-RESULT PASS/FAIL is the verdict.
+fail=0
+bt() { echo "BT $*"; }
+chk() { # chk <name> <command...>
+	name=$1; shift
+	if "$@" >/tmp/chk.out 2>&1; then
+		bt "$name ok"
+	else
+		bt "$name FAIL: $(tr '\n' ' ' </tmp/chk.out | cut -c1-300)"
+		fail=1
+	fi
+}
+
+echo "BT-BEGIN"
+bt "uptime_at_selftest $(cut -d' ' -f1 /proc/uptime)"
+bt "uname $(uname -r) $(uname -m)"
+bt "cmdline $(cat /proc/cmdline)"
+bt "cpu $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+bt "cpu_family_model $(grep -m1 '^cpu family' /proc/cpuinfo | cut -d: -f2 | tr -d ' ')/$(grep -m1 '^model[[:space:]]*:' /proc/cpuinfo | cut -d: -f2 | tr -d ' ')"
+bt "cpu_flags $(grep -m1 '^flags' /proc/cpuinfo | cut -d: -f2-)"
+bt "nr_cpus $(grep -c '^processor' /proc/cpuinfo)"
+for v in /sys/devices/system/cpu/vulnerabilities/*; do
+	bt "vuln ${v##*/}: $(cat "$v")"
+done
+bt "taint $(cat /proc/sys/kernel/tainted)"
+run_init=$(dmesg | grep -m1 'Run /init as init process' | sed -n 's/^\[ *\([0-9.]*\)\].*/\1/p')
+bt "dmesg_run_init_s ${run_init:-unknown}"
+
+# Memory (busybox free -m)
+free -m | while read -r l; do bt "free $l"; done
+bt "vm min_free_kbytes=$(cat /proc/sys/vm/min_free_kbytes) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null)"
+awk '/^Node/{z=$4} /^ +high /{h=$2} /protection:/{gsub(/[(),]/,""); p=$0; sub(/.*protection: /,"",p); print "BT zone " z " high=" h " protection=" p}' /proc/zoneinfo
+bt "meminfo $(grep -E '^(MemTotal|MemFree|MemAvailable|Slab|KernelStack|PageTables):' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+
+# Modules the initramfs loaded
+bt "modules $(cut -d' ' -f1 /proc/modules | tr '\n' ' ')"
+chk "module_sky2_loaded" grep -q '^sky2 ' /proc/modules
+chk "module_ath9k_loaded" grep -q '^ath9k ' /proc/modules
+bt "vermagic_sky2 $(modinfo -F vermagic sky2 2>/dev/null)"
+
+# Filesystems required by the brief
+for fs in ext4 tmpfs devtmpfs proc sysfs; do
+	chk "fs_$fs" grep -qw "$fs" /proc/filesystems
+done
+chk "fs_overlay_module" modprobe overlay
+mkdir -p /tmp/ov/l /tmp/ov/u /tmp/ov/w /tmp/ov/m
+echo lower > /tmp/ov/l/f
+chk "fs_overlay_mount" mount -t overlay ov -o lowerdir=/tmp/ov/l,upperdir=/tmp/ov/u,workdir=/tmp/ov/w /tmp/ov/m
+echo upper > /tmp/ov/m/g 2>/dev/null
+chk "fs_overlay_copyup" test -f /tmp/ov/u/g
+umount /tmp/ov/m 2>/dev/null
+
+# perex's root path: built-in AHCI -> libata/SCSI -> sd -> ext4. QEMU attaches
+# an ext4 image (made with mkfs.ext4 in the build container) as an AHCI disk.
+if [ -b /dev/sda ]; then
+	mkdir -p /mnt/e4
+	chk "blk_ahci_sda" sh -c 'grep -q "^ *8 *0 " /proc/partitions'
+	chk "fs_ext4_mount" mount -t ext4 /dev/sda /mnt/e4
+	chk "fs_ext4_read" grep -qx bonnell-ext4-marker /mnt/e4/marker
+	chk "fs_ext4_write" sh -c 'dd if=/dev/urandom of=/mnt/e4/rw bs=64k count=16 2>/dev/null &&
+		a=$(md5sum < /mnt/e4/rw) && sync && echo 3 > /proc/sys/vm/drop_caches &&
+		b=$(md5sum < /mnt/e4/rw) && [ "$a" = "$b" ]'
+	umount /mnt/e4 2>/dev/null
+	chk "fs_ext4_loop" sh -c 'modprobe loop && mount -t ext4 -o ro,loop /dev/sda /mnt/e4 && umount /mnt/e4'
+else
+	bt "blk_ahci_sda FAIL: no /dev/sda (AHCI disk not attached?)"
+	fail=1
+fi
+
+# Networking defaults
+bt "tcp_cc $(cat /proc/sys/net/ipv4/tcp_congestion_control) avail=[$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)]"
+bt "default_qdisc $(cat /proc/sys/net/core/default_qdisc)"
+chk "net_bbr_default" grep -qx bbr /proc/sys/net/ipv4/tcp_congestion_control
+chk "net_fq_default" grep -qx fq /proc/sys/net/core/default_qdisc
+ip link set lo up
+chk "net_lo_up" ping -c 3 -W 2 127.0.0.1
+
+# IDT/IST self check and CPU notes from the kernel
+bt "dmesg_idt $(dmesg | grep -E 'IDT:' | tr '\n' ' ')"
+bt "dmesg_x86cpu $(dmesg | grep -E 'x86/CPU:' | tr '\n' ' ')"
+chk "idt_ist_gates" sh -c '! dmesg | grep -q "IDT: vector"'
+
+# Interrupt counters and timer wake-up latency (TCG numbers are emulator-bound)
+grep -E '^ *(LOC|RES|CAL|TLB|[0-9]+):' /proc/interrupts | tr -s ' ' | while read -r l; do bt "irq $l"; done
+bt "$(irqlat 5000 1000 2>&1)"
+
+# Any kernel warning/oops/#UD/#GP during boot or the tests is a failure
+probs=$(dmesg | grep -E -i 'BUG:|WARNING:|Oops|Kernel panic|invalid opcode|general protection|Call Trace|segfault|traps:' )
+if [ -n "$probs" ]; then
+	bt "dmesg_problems FOUND"
+	echo "$probs" | head -40 | while read -r l; do bt "dmesg_problem $l"; done
+	fail=1
+else
+	bt "dmesg_problems none"
+fi
+
+bt "uptime_at_end $(cut -d' ' -f1 /proc/uptime)"
+[ $fail -eq 0 ] && echo "BT-RESULT PASS" || echo "BT-RESULT FAIL"
+echo "BT-END"

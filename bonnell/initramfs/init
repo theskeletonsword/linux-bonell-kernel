@@ -1,0 +1,76 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+#
+# /init of the Bonnell initramfs (static musl busybox).
+#
+# 1. mounts proc/sys/devtmpfs/devpts/tmpfs
+# 2. loads perex's network drivers: sky2 (Marvell Yukon-2) and ath9k
+# 3. bonnell.autotest=1  -> run /bin/bonnell-selftest and power off (QEMU CI)
+#    root=<dev|UUID=..|LABEL=..> (and no bonnell.rescue) -> switch_root to it
+#    otherwise, or on any failure -> rescue shell /bin/sh on the console
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+log() { echo "[bonnell-init] $*" > /dev/console; }
+
+mount -t proc -o nosuid,nodev,noexec proc /proc
+mount -t sysfs -o nosuid,nodev,noexec sysfs /sys
+mount -t devtmpfs -o nosuid,mode=0755 devtmpfs /dev
+mkdir -p /dev/pts /dev/shm /run /tmp /newroot
+mount -t devpts -o nosuid,noexec,gid=5,mode=0620 devpts /dev/pts
+mount -t tmpfs -o nosuid,nodev,mode=0755 tmpfs /run
+mount -t tmpfs -o nosuid,nodev,mode=1777 tmpfs /tmp
+
+log "Linux $(uname -r), $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+
+for m in sky2 ath9k; do
+	if modprobe "$m"; then
+		log "modprobe $m: ok"
+	else
+		log "modprobe $m: FAILED"
+	fi
+done
+
+cmdline=" $(cat /proc/cmdline) "
+case "$cmdline" in
+*" bonnell.autotest=1 "*)
+	/bin/bonnell-selftest > /dev/console 2>&1
+	sync
+	poweroff -f
+	;;
+esac
+
+root=""
+for arg in $cmdline; do
+	case "$arg" in
+	root=*) root=${arg#root=} ;;
+	esac
+done
+
+if [ -n "$root" ] && [ "${cmdline#* bonnell.rescue }" = "$cmdline" ]; then
+	dev=""
+	i=0
+	# Root is on built-in AHCI/SCSI; give the disks up to 10 s to appear.
+	while [ $i -lt 20 ]; do
+		case "$root" in
+		UUID=*|LABEL=*) dev=$(findfs "$root" 2>/dev/null) ;;
+		*) [ -b "$root" ] && dev=$root ;;
+		esac
+		[ -n "$dev" ] && break
+		sleep 0.5
+		i=$((i + 1))
+	done
+	if [ -n "$dev" ] && mount -o ro "$dev" /newroot; then
+		init=/sbin/init
+		for arg in $cmdline; do
+			case "$arg" in init=*) init=${arg#init=} ;; esac
+		done
+		log "switching to root $dev ($init)"
+		mount --move /dev /newroot/dev 2>/dev/null
+		umount /dev/pts /run /tmp /sys /proc 2>/dev/null
+		exec switch_root /newroot "$init"
+	fi
+	log "cannot mount root '$root'"
+fi
+
+log "rescue shell: /bin/sh (modules: $(cut -d' ' -f1 /proc/modules | tr '\n' ' '))"
+exec setsid cttyhack /bin/sh
