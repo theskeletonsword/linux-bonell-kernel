@@ -53,7 +53,7 @@ config X86_REQUIRED_FEATURE_CMOV
 # generates movbe.
 config X86_REQUIRED_FEATURE_MOVBE
 	def_bool y
-	depends on MATOM
+	depends on MATOM || X86_MARCH_BONNELL
 
 config X86_REQUIRED_FEATURE_SYSFAST32
 	def_bool y

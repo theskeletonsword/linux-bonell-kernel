@@ -167,6 +167,16 @@ ifdef CONFIG_X86_NATIVE_CPU
 
         # generate_rust_target.rs handles Rust APX gating.
         KBUILD_RUSTFLAGS += -Ctarget-cpu=native
+else ifdef CONFIG_X86_MARCH_BONNELL
+        # Intel Atom Bonnell (e.g. N450): in-order, dual issue, 64-byte
+        # lines, no POPCNT/SSE4/AVX. GCC keeps ISA bits that were disabled
+        # explicitly above (-mno-sse/-mno-mmx/-mno-avx ...) even though
+        # -march=bonnell comes later, so no SSE/AVX/AVX2/AVX-512 code can be
+        # generated and the FPU state is never touched implicitly. -march
+        # may emit MOVBE: X86_REQUIRED_FEATURE_MOVBE makes the boot-time CPU
+        # check enforce it.
+        KBUILD_CFLAGS += -march=bonnell -mtune=bonnell
+        KBUILD_RUSTFLAGS += -Ctarget-cpu=bonnell -Ztune-cpu=bonnell
 else
         KBUILD_CFLAGS += -march=x86-64 -mtune=generic
         KBUILD_RUSTFLAGS += -Ctarget-cpu=x86-64 -Ztune-cpu=generic

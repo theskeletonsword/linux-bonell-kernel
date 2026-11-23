@@ -4,7 +4,14 @@
 #define _ASM_VERMAGIC_H
 
 #ifdef CONFIG_X86_64
-/* X86_64 does not define MODULE_PROC_FAMILY */
+/*
+ * Generic X86_64 does not define MODULE_PROC_FAMILY. A Bonnell build may
+ * contain MOVBE, so tag its modules: they must not be loaded into a
+ * generic kernel that might be running on a CPU without MOVBE.
+ */
+# ifdef CONFIG_X86_MARCH_BONNELL
+#  define MODULE_PROC_FAMILY "BONNELL "
+# endif
 #elif defined CONFIG_M586TSC
 #define MODULE_PROC_FAMILY "586TSC "
 #elif defined CONFIG_M586MMX
@@ -43,7 +50,7 @@
 #error unknown processor family
 #endif
 
-#ifdef CONFIG_X86_32
+#if defined(CONFIG_X86_32) || defined(CONFIG_X86_MARCH_BONNELL)
 # define MODULE_ARCH_VERMAGIC MODULE_PROC_FAMILY
 #else
 # define MODULE_ARCH_VERMAGIC ""

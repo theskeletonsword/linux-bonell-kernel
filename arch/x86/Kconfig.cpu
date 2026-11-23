@@ -229,6 +229,45 @@ config X86_NATIVE_CPU
 
 	  If unsure, say N.
 
+config X86_MARCH_BONNELL
+	bool "Build and optimize for Intel Atom Bonnell (e.g. Atom N450)"
+	depends on X86_64
+	depends on !X86_NATIVE_CPU
+	depends on $(cc-option,-march=bonnell -mtune=bonnell)
+	help
+	  Generate code for the in-order, dual-issue Intel Atom "Bonnell"
+	  core in its 64-bit capable parts (Diamondville/Pineview: Atom
+	  230/330, N4xx, N5xx, D4xx, D5xx; CPUID family 6 model 0x1c) using
+	  -march=bonnell -mtune=bonnell.
+
+	  Kernel code stays free of SSE/AVX as on every x86 build: the
+	  -mno-sse/-mno-mmx/-mno-avx flags in arch/x86/Makefile take
+	  precedence over the ISA implied by -march. The compiler does emit
+	  MOVBE, therefore MOVBE becomes a required CPU feature: on a CPU
+	  without it (e.g. Core 2, pre-Haswell Core i, QEMU's default
+	  qemu64 model) the boot-time CPU check refuses to continue with a
+	  clear message instead of dying on a #UD.
+
+	  Bonnell is listed as NO_SPECULATION in the CPU vulnerability
+	  whitelist (arch/x86/kernel/cpu/common.c), so such a kernel is meant
+	  to be built with CPU_MITIGATIONS=n. If it is ever booted on a CPU
+	  that does speculate, it says so loudly and taints itself ('S').
+
+	  If unsure, say N.
+
+config X86_BONNELL_HOT_O3
+	bool "Compile the networking hot paths with -O3"
+	depends on X86_MARCH_BONNELL
+	depends on CC_OPTIMIZE_FOR_PERFORMANCE
+	default y
+	help
+	  Build net/ (core, IPv4/IPv6, scheduler, mac80211/cfg80211), the
+	  Marvell sky2 driver and the Atheros ath9k driver with -O3 instead
+	  of -O2. Everything else, in particular arch/x86/boot, stays at the
+	  kernel's default optimization level. -O3 trades code size for
+	  speed, and Bonnell has a 32 KiB L1i, so only the packet paths get
+	  it; say N to compare against a plain -O2 build.
+
 config X86_GENERIC
 	bool "Generic x86 support"
 	depends on X86_32
