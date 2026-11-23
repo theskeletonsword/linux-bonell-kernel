@@ -74,6 +74,16 @@ static const u32 default_msg =
     | NETIF_MSG_TIMER | NETIF_MSG_TX_ERR | NETIF_MSG_RX_ERR
     | NETIF_MSG_IFUP | NETIF_MSG_IFDOWN;
 
+/*
+ * Per-frame debug messages are off by default (msg_enable); mark the test
+ * unlikely() so the printk call is moved out of the fast path.
+ */
+#define sky2_netif_printk(priv, type, level, dev, fmt, args...)	\
+do {								\
+	if (unlikely(netif_msg_##type(priv)))			\
+		netdev_printk(level, (dev), fmt, ##args);	\
+} while (0)
+
 static int debug = -1;		/* defaults above */
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
@@ -81,6 +91,20 @@ MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 static int copybreak __read_mostly = 128;
 module_param(copybreak, int, 0);
 MODULE_PARM_DESC(copybreak, "Receive copy threshold");
+
+/*
+ * NAPI budget. The driver has a single NAPI context for both ports and
+ * every poll pays for uncached MMIO reads (B0_Y2_SP_EISR on entry,
+ * STAT_PUT_IDX per status batch, B0_Y2_SP_LISR on completion). On the
+ * in-order Intel Atom (Bonnell) the default of NAPI_POLL_WEIGHT is the
+ * right choice: larger batches amortise those reads and keep the stack's
+ * code hot in the small 32 KiB L1i, while the per-packet L1d working set
+ * is not reused across packets anyway, so a smaller budget buys nothing.
+ * It is tunable at load time so it can be re-evaluated on real hardware.
+ */
+static int napi_weight = NAPI_POLL_WEIGHT;
+module_param(napi_weight, int, 0444);
+MODULE_PARM_DESC(napi_weight, "NAPI poll budget (8..64, default 64)");
 
 static int disable_msi = -1;
 module_param(disable_msi, int, 0);
@@ -1845,8 +1869,8 @@ static netdev_tx_t sky2_xmit_frame(struct sk_buff *skb,
 		goto mapping_error;
 
 	slot = sky2->tx_prod;
-	netif_printk(sky2, tx_queued, KERN_DEBUG, dev,
-		     "tx queued, slot %u, len %d\n", slot, skb->len);
+	sky2_netif_printk(sky2, tx_queued, KERN_DEBUG, dev,
+			  "tx queued, slot %u, len %d\n", slot, skb->len);
 
 	/* Send high bits if needed */
 	upper = upper_32_bits(mapping);
@@ -2012,8 +2036,8 @@ static void sky2_tx_complete(struct sky2_port *sky2, u16 done)
 		sky2_tx_unmap(sky2->hw->pdev, re);
 
 		if (skb) {
-			netif_printk(sky2, tx_done, KERN_DEBUG, dev,
-				     "tx done %u\n", idx);
+			sky2_netif_printk(sky2, tx_done, KERN_DEBUG, dev,
+					  "tx done %u\n", idx);
 
 			pkts_compl++;
 			bytes_compl += skb->len;
@@ -2549,6 +2573,64 @@ nobuf:
 }
 
 /*
+ * Next Rx ring slot, with wrap. This replaces a per-frame 32-bit division.
+ *
+ * Callers pass an index that is already known to be valid
+ * (0 <= idx < rx_pending): rx_next is zeroed in sky2_rx_start() and only
+ * advanced by this helper, while rx_pending is only changed in probe and
+ * in sky2_set_ringparam() with the interface closed, so the ring is
+ * reallocated and rx_start() runs again before the next frame is seen.
+ * For such an index "idx + 1 >= rx_pending" is exactly "idx + 1 ==
+ * rx_pending" and the result equals (idx + 1) % rx_pending.
+ */
+static inline unsigned int sky2_rx_succ(const struct sky2_port *sky2,
+					unsigned int idx)
+{
+	idx++;
+	return idx >= sky2->rx_pending ? 0 : idx;
+}
+
+/*
+ * Software-pipelined prefetch for the frames that follow the one just
+ * consumed; @n1 is the slot of the next frame. On an in-order core a load
+ * that misses stalls as soon as its value is used, so nothing is
+ * dereferenced here that was not prefetched at least one frame earlier:
+ *
+ *   slot n3: rx_ring_info only (dereferenced in the next call as n2)
+ *   slot n2: its skb pointer is read (ring entry prefetched last time) and
+ *            the sk_buff lines the Rx path touches are prefetched
+ *   slot n1: its skb was prefetched last time as n2, so skb->data can be
+ *            loaded without a stall and the start of the frame prefetched
+ *
+ * Prefetch instructions never fault, so a slot whose frame the hardware
+ * has not written yet only costs a wasted line fill. Ring slots are only
+ * modified from NAPI context (or with NAPI disabled) and rx_pending >= 8,
+ * so n1..n3 never alias the slot being processed. skb is NULL only after
+ * sky2_rx_clean() failed to refill the ring; hence the test.
+ */
+static inline void sky2_rx_prefetch(const struct sky2_port *sky2,
+				    unsigned int n1)
+{
+	const struct rx_ring_info *ring = sky2->rx_ring;
+	unsigned int n2 = sky2_rx_succ(sky2, n1);
+	unsigned int n3 = sky2_rx_succ(sky2, n2);
+	const struct sk_buff *skb;
+
+	prefetch(ring + n3);
+
+	skb = READ_ONCE(ring[n2].skb);
+	if (skb) {
+		/* On x86-64: hash/vlan_all/end share one line, head/data the next */
+		prefetch(&skb->hash);
+		prefetch(&skb->data);
+	}
+
+	skb = READ_ONCE(ring[n1].skb);
+	if (skb)
+		prefetch(skb->data);
+}
+
+/*
  * Receive one packet.
  * For larger packets, get new buffer.
  */
@@ -2560,12 +2642,12 @@ static struct sk_buff *sky2_receive(struct net_device *dev,
 	struct sk_buff *skb = NULL;
 	u16 count = (status & GMR_FS_LEN) >> 16;
 
-	netif_printk(sky2, rx_status, KERN_DEBUG, dev,
-		     "rx slot %u status 0x%x len %d\n",
-		     sky2->rx_next, status, length);
+	sky2_netif_printk(sky2, rx_status, KERN_DEBUG, dev,
+			  "rx slot %u status 0x%x len %d\n",
+			  sky2->rx_next, status, length);
 
-	sky2->rx_next = (sky2->rx_next + 1) % sky2->rx_pending;
-	prefetch(sky2->rx_ring + sky2->rx_next);
+	sky2->rx_next = sky2_rx_succ(sky2, sky2->rx_next);
+	sky2_rx_prefetch(sky2, sky2->rx_next);
 
 	if (skb_vlan_tag_present(re->skb))
 		count -= VLAN_HLEN;	/* Account for vlan tag */
@@ -4812,7 +4894,7 @@ static int sky2_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct net_device *dev, *dev1;
 	struct sky2_hw *hw;
-	int err, using_dac = 0, wol_default;
+	int err, using_dac = 0, wol_default, weight;
 	u32 reg;
 	char buf1[16];
 
@@ -4932,7 +5014,12 @@ static int sky2_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 
-	netif_napi_add(dev, &hw->napi, sky2_poll);
+	weight = clamp(napi_weight, 8, NAPI_POLL_WEIGHT);
+	if (weight != napi_weight)
+		dev_info(&pdev->dev, "napi_weight %d out of range 8..%d, using %d\n",
+			 napi_weight, NAPI_POLL_WEIGHT, weight);
+
+	netif_napi_add_weight(dev, &hw->napi, sky2_poll, weight);
 
 	err = register_netdev(dev);
 	if (err) {
