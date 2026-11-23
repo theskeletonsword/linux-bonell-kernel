@@ -4271,7 +4271,6 @@ static int create_one_cdev(struct scsi_tape *tape, int mode, int rew)
 	struct cdev *cdev;
 	struct device *dev;
 	struct st_modedef *STm = &(tape->modes[mode]);
-	char name[10];
 	int dev_num = tape->index;
 
 	cdev_devno = MKDEV(SCSI_TAPE_MAJOR, TAPE_MINOR(dev_num, mode, rew));
@@ -4295,11 +4294,9 @@ static int create_one_cdev(struct scsi_tape *tape, int mode, int rew)
 	}
 
 	i = mode << (4 - ST_NBR_MODE_BITS);
-	snprintf(name, 10, "%s%s%s", rew ? "n" : "",
-		 tape->name, st_formats[i]);
-
 	dev = device_create(&st_sysfs_class, &tape->device->sdev_gendev,
-			    cdev_devno, &tape->modes[mode], "%s", name);
+			    cdev_devno, &tape->modes[mode], "%s%s%s",
+			    rew ? "n" : "", tape->name, st_formats[i]);
 	if (IS_ERR(dev)) {
 		pr_err("st%d: device_create failed\n", dev_num);
 		error = PTR_ERR(dev);

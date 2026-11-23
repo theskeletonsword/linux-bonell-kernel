@@ -909,7 +909,7 @@ static int ch_probe(struct scsi_device *sd)
 	}
 
 	ch->minor = ret;
-	sprintf(ch->name,"ch%d",ch->minor);
+	scnprintf(ch->name, sizeof(ch->name), "ch%d", ch->minor);
 	ret = scsi_device_get(sd);
 	if (ret) {
 		sdev_printk(KERN_WARNING, sd, "ch%d: failed to get device\n",
