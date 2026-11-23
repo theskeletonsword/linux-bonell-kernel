@@ -168,7 +168,8 @@ struct elantech_device_info {
 
 struct elantech_data {
 	struct input_dev *tp_dev;	/* Relative device for trackpoint */
-	char tp_phys[32];
+	/* serio->phys (up to 31 chars) + "/input1" + NUL */
+	char tp_phys[sizeof_field(struct serio, phys) + sizeof("/input1") - 1];
 	unsigned char reg_07;
 	unsigned char reg_10;
 	unsigned char reg_11;
