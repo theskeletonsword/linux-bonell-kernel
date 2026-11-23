@@ -62,6 +62,104 @@ version 2** — `SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note`
 
 ---
 
+## Resumen en español
+
+**Qué es.** Linux 7.3.4 upstream (primer commit, sin modificar) más una
+docena de commits pequeños y revisables (`git log --oneline 07b22d9..`) para el Atom N450 de `perex`. La documentación
+técnica detallada, en inglés, está en las secciones siguientes.
+
+**Optimización para Bonnell.**
+- Nueva opción `CONFIG_X86_MARCH_BONNELL`: `-march=bonnell -mtune=bonnell`.
+  Linux 6.15 eliminó `MATOM` para 64-bit.
+- El kernel sigue sin usar SSE/AVX/AVX2/AVX-512: los `-mno-*` de
+  `arch/x86/Makefile` prevalecen sobre `-march`. Está verificado con una sonda
+  vectorizable a `-O3`.
+- GCC emite MOVBE con `-march=bonnell`, así que MOVBE pasa a ser obligatorio.
+  En una CPU sin MOVBE el arranque se niega con un mensaje claro, sin `#UD` ni
+  triple fault.
+- `-O3` sólo en `net/`, `sky2` y `ath9k`, detrás de `CONFIG_X86_BONNELL_HOT_O3`.
+  `arch/x86/boot` sigue en `-O2`. El `-O3` global se evaluó: arranca, pero
+  añade un 10 % de código sin ganancia medible.
+
+**Endurecimiento.**
+- Activado: `-fstack-protector-strong`, `HARDENED_USERCOPY`, `FORTIFY_SOURCE`,
+  `STRICT_KERNEL_RWX`/`STRICT_MODULE_RWX`, `SLAB_FREELIST_RANDOM`/`HARDENED`,
+  `SHUFFLE_PAGE_ALLOCATOR`, KASLR y módulos firmados.
+- Superficie de ataque eliminada: ABI de 32 bits, `modify_ldt`, vsyscall e
+  `ioperm`.
+- Auditoría TOCTOU de los ficheros modificados: no hay ninguna doble lectura
+  de memoria de usuario.
+
+**IDT/GDT.**
+- Ya estaban alineadas a página, lo que cubre los 64 B. No se movieron; unos
+  `static_assert` garantizan ese layout.
+- En el arranque se verifica que #DF, NMI, #DB y #MC tienen su pila IST.
+- El camino IRQ/syscall baja de 598 a 401 instrucciones (−33 %) y los stubs
+  de IRQ ocupan la mitad.
+
+> ⚠ **Mitigaciones de ejecución especulativa (incluido KPTI) compiladas
+> fuera.** Es correcto sólo en Bonnell, que el propio kernel clasifica como
+> `NO_SPECULATION`: las 19 vulnerabilidades salen "Not affected". **No uses
+> este kernel en otra CPU.** Si arranca en una CPU especulativa, avisa y se
+> marca con taint `S`.
+
+**Código muerto.**
+- Se pasó de 1811 a 1480 opciones built-in. Fuera: CPUs AMD/Centaur/Zhaoxin,
+  invitado Xen/KVM, NUMA, IOMMU, buses legacy, depuración.
+- Se mantienen ext4, tmpfs, devtmpfs, proc, sysfs, overlayfs y todo el
+  hardware de perex.
+- El build W=1 con `-Werror` demuestra que no quedan funciones ni variables
+  estáticas sin usar.
+- No se borró código fuente: lo que se compila lo decide la `.config`, y
+  conservar el árbol completo permite rebasear sobre 7.3.y.
+
+**Red.**
+- `sky2`: sin `DIV` por trama, prefetch RX en 3 etapas y `napi_weight`
+  ajustable (por defecto 64).
+- `ath9k`: `ath_dbg()` ya no evalúa sus argumentos, lo que elimina una lectura
+  PCI en cada pasada de TX.
+- Regulatorio y cifrado hardware intactos.
+- BBR + fq por defecto; netfilter sólo con nftables, como módulos.
+
+**Avisos y musl.**
+- Todo el kernel compila con 0 avisos con W=1 (el `-Wextra` curado del
+  kernel) más `CONFIG_WERROR`.
+- Se corrigieron 3 problemas upstream: `__printf` en bpf, truncado en
+  elantech y `arch/x86/tools`, que no compilaba en musl.
+- `headers_install`: 1025 cabeceras probadas contra musl.
+
+**Validación.**
+- En QEMU/TCG, con un modelo del N450 (familia 6, modelo 0x1c) y
+  `-d int,cpu_reset`: 0 triple faults y 0 `#UD`/`#GP`/`#DF` del kernel, y el
+  selftest pasa.
+- Medidas con TCG y KVM: `bzImage` −32 %, `.text` −27 % y arranque hasta
+  `/init` −22 % (KVM, sin contar el sondeo SATA).
+- La latencia real hay que medirla en perex con `irqlat`, incluido en la
+  initramfs.
+
+**Compilar e instalar:** ver [Build](#build--compilación-podman--alpine-musl)
+e [Install](#install-on-perex-alpine--instalación-en-perex).
+
+### Commits
+
+```
+07b22d94b Import Linux 7.3.4 (upstream release, unmodified)
+d3da9f4be x86/cpu: Add CONFIG_X86_MARCH_BONNELL for Intel Atom Bonnell (N450)
+de6b74803 x86/idt, x86/cpu: Lock in IDT/GDT cache-line layout, verify IST gates
+e762d0425 bpf: Add __printf() to bpf_diag_source()
+bb92a288e Input: elantech - size tp_phys for the longest serio phys string
+5a6d42662 net: sky2: Remove per-frame division, pipeline Rx prefetch, napi_weight
+a309c9ce7 wifi: ath: Do not evaluate ath_dbg() arguments when ATH_DEBUG=n
+5a0e37788 wifi: ath9k: Mark fatal/watchdog/reset interrupt paths unlikely()
+6ca495dce net, sky2, ath9k: Build the packet paths at -O3 (X86_BONNELL_HOT_O3)
+658bd6990 x86/tools: Fix insn_sanity/insn_decoder_test build on musl
+fcbb35e1a bonnell: Add reproducible Alpine/musl build, packaging and QEMU test tooling
+a4924b192 Add README.md, LICENSE (GPLv2 text) and ignore local outputs
+15699a25f bonnell: Add KVM measurement mode, fix self-test false positives
+```
+
+---
+
 ## What was changed / Qué se cambió
 
 `git log --oneline 07b22d9..` — the first commit is the **unmodified**
@@ -206,13 +304,21 @@ because it enables `-Wunused-parameter`, `-Wsign-compare` and
 signatures, designated initialisers), and would bury real problems under
 thousands of false positives. Two upstream issues surfaced and were fixed:
 `bpf_diag_source()` lacked `__printf()`, and elantech's `tp_phys` could
-truncate.
+truncate (a third, musl-only, is in the next section).
 
 ### 8. musl compatibility
 
 The whole build runs on musl: host tools (`fixdep`, `kconfig`, `modpost`,
 `objtool` with libelf, `sign-file` with OpenSSL 3, GCC plugins) build and run
-there. `make headers_install` produces 1025 headers with no glibc-private
+there. One real glibc dependency was found and fixed: with
+`CONFIG_X86_DECODER_SELFTEST=y` (enabled in Alpine's own config), upstream
+7.3.4 does **not** build on musl, because `arch/x86/tools/insn_sanity` and
+`insn_decoder_test` pull raw `include/uapi` headers that use
+`__attribute_const__`, which glibc happens to define and musl does not. The fix
+includes `tools/include/linux/compiler.h`. Afterwards the decoder self test
+checks 3 205 109 instructions of the `-march=bonnell` vmlinux, and
+`insn_sanity` 1 000 000 random instructions, both without errors.
+`make headers_install` (which needs `rsync`) produces 1025 headers with no glibc-private
 dependency, and `CONFIG_UAPI_HEADER_TEST` compile-tests every one of them
 against musl during the build. `bonnell/scripts/test-uapi-musl.sh` also
 checks the mixes real userland uses (netlink, nl80211/wireless, input, v4l2,
@@ -263,18 +369,27 @@ source tree (`O=` builds), so several builds can share it.
 | `System.map-bonnell`, `config-bonnell`, `SHA256SUMS` | |
 | `atom-bonnell-kernel.tar.gz` (+ `.sha256`) | everything above |
 
-### Install on perex (Alpine)
+### Install on perex (Alpine) / Instalación en perex
 
 ```sh
-tar -xzf atom-bonnell-kernel.tar.gz
+sha256sum -c atom-bonnell-kernel.tar.gz.sha256
+tar -xzf atom-bonnell-kernel.tar.gz && sha256sum -c SHA256SUMS
 cp vmlinuz-bonnell initramfs-bonnell.cpio.gz /boot/
+# "build" is a symlink to the build directory of the build host: drop it
+rm -f modroot/lib/modules/7.3.4-bonnell/build
 cp -a modroot/lib/modules/7.3.4-bonnell /lib/modules/
-# extlinux (/boot/extlinux.conf) or GRUB entry:
-#   KERNEL /boot/vmlinuz-bonnell
-#   INITRD /boot/initramfs-bonnell.cpio.gz
-#   APPEND root=UUID=<your-root-uuid> rw quiet
-# add bonnell.rescue to get the rescue shell instead of switch_root
+# Keep the stock Alpine entry as a fallback and add one for this kernel,
+# e.g. in /boot/extlinux.conf (syslinux) or a GRUB menuentry:
+#   LABEL bonnell
+#     KERNEL /boot/vmlinuz-bonnell
+#     INITRD /boot/initramfs-bonnell.cpio.gz
+#     APPEND root=UUID=<root-uuid> rw quiet
+# bonnell.rescue  -> rescue /bin/sh instead of switch_root
 ```
+
+ES: conserva la entrada del kernel de Alpine como respaldo. El initramfs carga
+`sky2` y `ath9k`, monta `root=` (dispositivo, `UUID=` o `LABEL=`) y hace
+`switch_root`; si falla, o con `bonnell.rescue`, abre `/bin/sh` en la consola.
 
 ---
 
@@ -362,12 +477,12 @@ KVM numbers have to be read as **virtual-machine** numbers:
   figures do **not** show an improvement — they cannot be trusted either way.
   Real latency must be measured on perex (`irqlat` ships in the initramfs);
   see the KVM table above for a less noisy, but still virtual, comparison.
-* `MemAvailable` is ~55 MB lower for bonnell **only in QEMU**: TCG does not
-  expose PSE on this model, so the base kernel (which, with Xen's
-  `PARAVIRT_XXL`, does not require PSE) disables THP, while the Bonnell kernel
-  (PSE required at compile time, as on every non-Xen x86-64) enables THP and
-  khugepaged raises `min_free_kbytes` from 3.9 to 44 MB. On the real N450 (PSE
-  present) both kernels reserve the same. Used memory is ~5 MB higher because
+* `MemAvailable` is ~55–65 MB lower for bonnell **only in QEMU**: the `n270`
+  model does not expose PSE (neither under TCG nor KVM, even with `+pse`). The
+  base kernel does not require PSE (Xen's `PARAVIRT_XXL`), so it disables
+  THP. The Bonnell kernel assumes PSE, like every non-Xen x86-64 kernel, so it
+  enables THP and khugepaged raises `min_free_kbytes` from 3.9 to 44 MB. The
+  real N450 has PSE, so both kernels reserve the same there. Used memory is ~5 MB higher because
   ext4/AHCI/SCSI are built in instead of modular.
 * Global `-O3` boots fine and needs only one `-Wno-error` (a
   `-Wformat-overflow` false positive in `kernel/trace/trace_kprobe.c` created
