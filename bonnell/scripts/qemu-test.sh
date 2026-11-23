@@ -15,6 +15,11 @@
 # a QEMU exit. With debug=1, "-d int,cpu_reset -D /tmp/qemu-debug.log" is
 # captured and analysed (analyze-qemu-log.py).
 #
+# ACCEL=tcg (default) is the validation mode described above. ACCEL=kvm runs
+# the guest on the host CPU for measurements: same N450 CPUID model, so the
+# kernel still sees a Bonnell, but instructions the N450 lacks would NOT
+# fault and "-d int" logs nothing, so KVM runs never replace TCG validation.
+#
 # Paths are host paths under $OUT or $BUILD_ROOT. Results: $OUT/logs/<label>/
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
@@ -37,7 +42,13 @@ c() { # host path -> container path
 mkdir -p "$OUT/logs/$label"
 
 incontainer bash -uo pipefail -c '
-	label=$1 K=$2 I=$3 MAP=$4 debug=$5 cpu=$6 extra=$7 tmo=$8
+	label=$1 K=$2 I=$3 MAP=$4 debug=$5 cpu=$6 extra=$7 tmo=$8 accel=$9
+	if [ "$accel" = kvm ]; then
+		acc=kvm
+		[ "$debug" = 1 ] && { echo "debug=1 needs TCG (-d int is TCG only); forcing debug=0" >&2; debug=0; }
+	else
+		acc=tcg,thread=multi
+	fi
 	L=/out/logs/$label
 	rm -f $L/serial.log /tmp/qemu-debug.log
 	dbg=()
@@ -47,7 +58,7 @@ incontainer bash -uo pipefail -c '
 	mkdir -p /tmp/e4root && echo bonnell-ext4-marker > /tmp/e4root/marker
 	mkfs.ext4 -q -F -L bonnell-test -d /tmp/e4root /tmp/e4.img 64M
 	t0=$(date +%s.%N)
-	timeout $tmo qemu-system-x86_64 -machine pc -accel tcg,thread=multi \
+	timeout $tmo qemu-system-x86_64 -machine pc -accel $acc \
 		-cpu "$cpu" -smp 2,sockets=1,cores=1,threads=2 -m 1024 \
 		-nodefaults -no-reboot -display none -monitor none \
 		-serial file:$L/serial.log \
@@ -58,7 +69,7 @@ incontainer bash -uo pipefail -c '
 		"${dbg[@]}"
 	rc=$?
 	t1=$(date +%s.%N)
-	echo "qemu_exit=$rc wall_s=$(echo "$t1 - $t0" | bc)" > $L/run.txt
+	echo "qemu_exit=$rc accel=$acc wall_s=$(echo "$t1 - $t0" | bc)" > $L/run.txt
 	if [ "$debug" = 1 ]; then
 		VM=$(dirname $MAP)/vmlinux; [ -f $VM ] || VM=
 		python3 -I /src/bonnell/scripts/analyze-qemu-log.py /tmp/qemu-debug.log $MAP $L/serial.log $VM > $L/analysis.txt
@@ -70,4 +81,4 @@ incontainer bash -uo pipefail -c '
 	cat $L/run.txt
 	grep -E "^BT-RESULT" $L/serial.log || echo "BT-RESULT MISSING (did not reach the self test)"
 ' _ "$label" "$(c "$kernel")" "$(c "$initrd")" "$(c "$sysmap")" "$debug" "$cpu" "$extra" \
-	"${QEMU_TIMEOUT:-900}"
+	"${QEMU_TIMEOUT:-900}" "$ACCEL"

@@ -17,8 +17,13 @@ mkdir -p "$BUILD_ROOT" "$OUT"
 
 # Run a command inside the hermetic container. Network is disabled: the
 # build must not depend on anything outside the image and the mounts.
+# ACCEL=kvm additionally passes /dev/kvm through (rootless podman needs
+# keep-groups so the kvm group survives into the container).
+ACCEL=${ACCEL:-tcg}
 incontainer() {
-	podman run --rm --network=none \
+	local kvm=()
+	[ "$ACCEL" = kvm ] && kvm=(--device /dev/kvm --group-add keep-groups)
+	podman run --rm --network=none "${kvm[@]}" \
 		-v "$SRC:/src" -v "$BUILD_ROOT:/build" -v "$OUT:/out" \
 		-w /src "$IMAGE" "$@" 2> >(grep -v 'is not a shared mount' >&2)
 }

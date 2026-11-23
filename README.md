@@ -243,6 +243,10 @@ bash bonnell/scripts/package.sh bonnell
 # 5. QEMU validation and benchmark
 bash bonnell/scripts/qemu-test.sh final out/vmlinuz-bonnell out/initramfs-bonnell.cpio.gz ~/kbuild/bonnell/System.map 1
 cat out/logs/final/analysis.txt
+# measurements: TCG (default) or KVM (needs the user in group kvm:
+#   sudo usermod -aG kvm $USER; then wsl --shutdown / log in again)
+bash bonnell/scripts/bench.sh 3 base:base:base bonnell:bonnell:
+ACCEL=kvm bash bonnell/scripts/bench.sh 5 bonnell:bonnell:
 ```
 
 The container runs with `--network=none`; the build never writes to the
@@ -322,6 +326,33 @@ upstream, see commit `x86/tools`). 3 boots each, QEMU TCG on the N450 model.
 `common_interrupt_return`, the APIC timer entry, `entry_SYSCALL_64`,
 `do_syscall_64`, before runtime alternatives patching.
 
+### KVM (`ACCEL=kvm`, 5 boots each, same N450 CPUID model, host CPU executes)
+
+| metric | base | **bonnell** | global `-O3` |
+|---|---:|---:|---:|
+| kernel boot to `/init` | 0.36–0.44 s | 0.57–0.70 s | 0.57–0.69 s |
+| … of which SATA port probing (built-in AHCI) | 0 (AHCI is a module: no disk found) | 0.32 s | 0.32 s |
+| **boot to `/init` without the SATA probe** | **0.39 s** | **~0.30 s (−22 %)** | ~0.31 s |
+| wake-up latency avg / p50 / p99, default idle | 45 / 31 / 194 µs | 81 / 60 / 286 µs | 87 / 66 / 280 µs |
+| wake-up latency min / p50, `idle=poll` | 7.0 / 10 µs | 12.1 / 14.7 µs | — |
+| wake-up latency min / p50, `idle=poll nopv` (base) | 12.0 / 14 µs | — | — |
+| self test | FAIL (no overlay, ext4/AHCI modular) | **5/5 PASS** | 5/5 PASS |
+
+KVM numbers have to be read as **virtual-machine** numbers:
+
+* The Bonnell kernel probes the SATA ports before `/init` because AHCI is built
+  in (perex's root path). The stock kernel defers that to its initramfs, so the
+  fair comparison excludes it: **−22 % boot time to `/init`**.
+* The stock kernel looks better on wake-up latency **only because it is a
+  paravirtualised KVM guest**: `KVM_GUEST` gives it PV EOI (no VM exit to
+  acknowledge each interrupt) and `cpuidle-haltpoll`. With those disabled
+  (`nopv`, `idle=poll`) both kernels measure the same (min 12.0 vs 12.1 µs).
+  The Bonnell kernel is bare-metal only by design (`HYPERVISOR_GUEST=n`), and
+  none of this exists on the physical N450.
+* Validation against triple faults and `#UD` stays on TCG: under KVM the host
+  CPU executes instructions the N450 lacks without faulting, and `-d int`
+  logs nothing.
+
 **Reading the numbers honestly / Lectura honesta:**
 
 * Size, `.text`, IRQ path length and stub density are deterministic and are
@@ -329,8 +360,8 @@ upstream, see commit `x86/tools`). 3 boots each, QEMU TCG on the N450 model.
 * Boot time and wake-up latency under TCG are dominated by the emulator (JIT,
   host scheduling): the boot difference is within noise and the latency
   figures do **not** show an improvement — they cannot be trusted either way.
-  Real latency must be measured on perex (`irqlat` ships in the initramfs; KVM
-  was not available on the build host).
+  Real latency must be measured on perex (`irqlat` ships in the initramfs);
+  see the KVM table above for a less noisy, but still virtual, comparison.
 * `MemAvailable` is ~55 MB lower for bonnell **only in QEMU**: TCG does not
   expose PSE on this model, so the base kernel (which, with Xen's
   `PARAVIRT_XXL`, does not require PSE) disables THP, while the Bonnell kernel

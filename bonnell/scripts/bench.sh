@@ -16,7 +16,7 @@ set -euo pipefail
 runs=${1:?runs}; shift
 R=$OUT/logs/bench
 mkdir -p "$R"
-: > "$R/results.tsv"
+: > "$R/results-$ACCEL.tsv"
 
 for spec in "$@"; do
 	IFS=: read -r label name sub <<<"$spec"
@@ -40,19 +40,20 @@ for spec in "$@"; do
 		stub_bytes=$(nm -S $O/vmlinux | awk "\$4==\"irq_entries_start\"{print strtonum(\"0x\"\$2)}")
 		echo "  bzImage=$bz text=$text data=$data bss=$bss modules=$mods modroot_kb=$modkb entry_exit_insns=$irq_path irq_stub_insns=$stub irq_stubs_bytes=$stub_bytes"
 		printf "%s\tstatic\tbzImage=%s\ttext=%s\tdata=%s\tbss=%s\tmodules=%s\tmodroot_kb=%s\tentry_exit_insns=%s\tirq_stubs_bytes=%s\n" \
-			$label $bz $text $data $bss $mods $modkb $irq_path "$stub_bytes" >> /out/logs/bench/results.tsv
-	' _ "$name" "$sub" "$label"
+			$label $bz $text $data $bss $mods $modkb $irq_path "$stub_bytes" >> /out/logs/bench/results-$4.tsv
+	' _ "$name" "$sub" "$label" "$ACCEL"
 	for i in $(seq 1 "$runs"); do
-		bash "$BONNELL_SCRIPTS/qemu-test.sh" "bench-$label-$i" "$D/vmlinuz-bonnell" \
+		bash "$BONNELL_SCRIPTS/qemu-test.sh" "bench-$ACCEL-$label-$i" "$D/vmlinuz-bonnell" \
 			"$D/initramfs-bonnell.cpio.gz" "$BUILD_ROOT/$name/System.map" 0 >/dev/null 2>&1 || true
-		S=$OUT/logs/bench-$label-$i/serial.log
+		S=$OUT/logs/bench-$ACCEL-$label-$i/serial.log
 		v() { grep -m1 "^BT $1 " "$S" | cut -d' ' -f3- ; }
 		init_s=$(v dmesg_run_init_s)
+		ata_s=$(v dmesg_ata_probe_s)
 		used=$(grep -m1 '^BT free Mem:' "$S" | awk '{print $5}')
 		avail=$(grep -m1 '^BT meminfo' "$S" | sed -n 's/.*MemAvailable: \([0-9]*\).*/\1/p')
 		lat=$(grep -m1 '^BT irqlat:' "$S" | sed 's/^BT irqlat: //')
 		res=$(grep -m1 '^BT-RESULT' "$S" | cut -d' ' -f2)
-		printf "%s\trun%d\tinit_s=%s\tfree_used_mb=%s\tmemavail_kb=%s\tselftest=%s\t%s\n" \
-			"$label" "$i" "$init_s" "$used" "$avail" "${res:-none}" "$lat" | tee -a "$R/results.tsv"
+		printf "%s\trun%d\tinit_s=%s\tata_probe_s=%s\tfree_used_mb=%s\tmemavail_kb=%s\tselftest=%s\t%s\n" \
+			"$label" "$i" "$init_s" "$ata_s" "$used" "$avail" "${res:-none}" "$lat" | tee -a "$R/results-$ACCEL.tsv"
 	done
 done

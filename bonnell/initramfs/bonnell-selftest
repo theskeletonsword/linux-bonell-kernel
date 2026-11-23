@@ -30,6 +30,11 @@ done
 bt "taint $(cat /proc/sys/kernel/tainted)"
 run_init=$(dmesg | grep -m1 'Run /init as init process' | sed -n 's/^\[ *\([0-9.]*\)\].*/\1/p')
 bt "dmesg_run_init_s ${run_init:-unknown}"
+# Time spent probing SATA ports before /init (built-in AHCI only): lets boot
+# times be compared with a kernel whose AHCI driver is a module.
+ata=$(dmesg | sed -n 's/^\[ *\([0-9.]*\)\] ata[0-9]*:.*/\1/p' |
+	awk 'NR == 1 { f = $1 } { l = $1 } END { if (NR) printf "%.3f", l - f; else print 0 }')
+bt "dmesg_ata_probe_s $ata"
 
 # Memory (busybox free -m)
 free -m | while read -r l; do bt "free $l"; done
@@ -90,7 +95,8 @@ grep -E '^ *(LOC|RES|CAL|TLB|[0-9]+):' /proc/interrupts | tr -s ' ' | while read
 bt "$(irqlat 5000 1000 2>&1)"
 
 # Any kernel warning/oops/#UD/#GP during boot or the tests is a failure
-probs=$(dmesg | grep -E -i 'BUG:|WARNING:|Oops|Kernel panic|invalid opcode|general protection|Call Trace|segfault|traps:' )
+# Case-sensitive on purpose: "-i Oops" also matches e.g. "1 loops" (TSC).
+probs=$(dmesg | grep -E 'BUG:|WARNING:|Oops:|Kernel panic|invalid opcode|general protection|Call Trace|segfault|traps:' )
 if [ -n "$probs" ]; then
 	bt "dmesg_problems FOUND"
 	echo "$probs" | head -40 | while read -r l; do bt "dmesg_problem $l"; done
