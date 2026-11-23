@@ -454,7 +454,7 @@ unlock_mutex:
 }
 static DEVICE_ATTR_WO(attach);
 
-#define MAX_STATUS_NAME 16
+#define MAX_STATUS_NAME 18
 
 struct status_attr {
 	struct device_attribute attr;
