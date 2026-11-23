@@ -40,6 +40,15 @@
 #include "dfs_cache.h"
 #endif
 
+/*
+ * Start of an SMB1 response buffer, computed from the response itself.
+ * Same address as &rsp->hdr.Protocol (offset 0), but FORTIFY_SOURCE then
+ * bounds copies by the whole buffer rather than by the 4-byte Protocol
+ * field, which data_offset-relative copies are not confined to.
+ */
+#define smb1_rsp_base(rsp) \
+	((char *)(rsp) + offsetof(typeof(*(rsp)), hdr.Protocol))
+
 #ifdef CONFIG_CIFS_POSIX
 static struct {
 	int index;
@@ -4143,7 +4152,7 @@ QFileInfoRetry:
 		else if (pFindData) {
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			memcpy((char *) pFindData,
-			       (char *) &pSMBr->hdr.Protocol +
+			       smb1_rsp_base(pSMBr) +
 			       data_offset, sizeof(FILE_ALL_INFO));
 		} else
 		    rc = -ENOMEM;
@@ -4317,7 +4326,7 @@ UnixQFileInfoRetry:
 		} else {
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			memcpy((char *) pFindData,
-			       (char *) &pSMBr->hdr.Protocol +
+			       smb1_rsp_base(pSMBr) +
 			       data_offset,
 			       sizeof(FILE_UNIX_BASIC_INFO));
 		}
@@ -4402,7 +4411,7 @@ UnixQPathInfoRetry:
 		} else {
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			memcpy((char *) pFindData,
-			       (char *) &pSMBr->hdr.Protocol +
+			       smb1_rsp_base(pSMBr) +
 			       data_offset,
 			       sizeof(FILE_UNIX_BASIC_INFO));
 		}
@@ -5240,7 +5249,7 @@ QFSAttributeRetry:
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			response_data =
 			    (FILE_SYSTEM_ATTRIBUTE_INFO
-			     *) (((char *) &pSMBr->hdr.Protocol) +
+			     *) ((smb1_rsp_base(pSMBr)) +
 				 data_offset);
 			memcpy(&tcon->fsAttrInfo, response_data,
 			       sizeof(FILE_SYSTEM_ATTRIBUTE_INFO));
@@ -5315,7 +5324,7 @@ QFSDeviceRetry:
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			response_data =
 			    (FILE_SYSTEM_DEVICE_INFO *)
-				(((char *) &pSMBr->hdr.Protocol) +
+				((smb1_rsp_base(pSMBr)) +
 				 data_offset);
 			memcpy(&tcon->fsDevInfo, response_data,
 			       sizeof(FILE_SYSTEM_DEVICE_INFO));
@@ -5387,7 +5396,7 @@ QFSUnixRetry:
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			response_data =
 			    (FILE_SYSTEM_UNIX_INFO
-			     *) (((char *) &pSMBr->hdr.Protocol) +
+			     *) ((smb1_rsp_base(pSMBr)) +
 				 data_offset);
 			memcpy(&tcon->fsUnixInfo, response_data,
 			       sizeof(FILE_SYSTEM_UNIX_INFO));

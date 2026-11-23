@@ -1243,7 +1243,6 @@ static int ufs_reconfigure(struct fs_context *fc)
 	struct ufs_super_block_third * usb3;
 	struct ufs_fs_context *ctx = fc->fs_private;
 	struct super_block *sb = fc->root->d_sb;
-	unsigned int ufstype;
 	unsigned int flags;
 
 	sync_filesystem(sb);
@@ -1252,8 +1251,6 @@ static int ufs_reconfigure(struct fs_context *fc)
 	flags = UFS_SB(sb)->s_flags;
 	usb1 = ubh_get_usb_first(uspi);
 	usb3 = ubh_get_usb_third(uspi);
-	
-	ufstype = UFS_SB(sb)->s_flavour;
 
 	if ((bool)(fc->sb_flags & SB_RDONLY) == sb_rdonly(sb)) {
 		UFS_SB(sb)->s_on_err = ctx->on_err;
@@ -1283,6 +1280,8 @@ static int ufs_reconfigure(struct fs_context *fc)
 		mutex_unlock(&UFS_SB(sb)->s_lock);
 		return -EINVAL;
 #else
+		unsigned int ufstype = UFS_SB(sb)->s_flavour;
+
 		if (ufstype != UFS_MOUNT_UFSTYPE_SUN && 
 		    ufstype != UFS_MOUNT_UFSTYPE_SUNOS &&
 		    ufstype != UFS_MOUNT_UFSTYPE_44BSD &&
