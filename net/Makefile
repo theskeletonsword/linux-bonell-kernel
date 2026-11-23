@@ -6,6 +6,10 @@
 # Rewritten to use lists instead of if-statements.
 #
 
+# Bonnell: build the whole networking stack (net/ and every subdirectory)
+# with -O3; the packet paths are what this kernel is tuned for.
+subdir-ccflags-$(CONFIG_X86_BONNELL_HOT_O3) += -O3
+
 obj-y				:= devres.o socket.o core/
 
 obj-$(CONFIG_COMPAT)		+= compat.o

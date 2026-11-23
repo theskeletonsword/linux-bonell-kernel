@@ -1,4 +1,9 @@
 # SPDX-License-Identifier: ISC
+
+# Bonnell tuning: build the per-frame hot paths (ath9k, ath9k_hw and
+# ath9k_common objects of this directory) at -O3.
+ccflags-$(CONFIG_X86_BONNELL_HOT_O3) += -O3
+
 ath9k-y +=	beacon.o \
 		gpio.o \
 		init.o \

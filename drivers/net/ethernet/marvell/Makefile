@@ -15,3 +15,8 @@ obj-y		+= octeon_ep/
 obj-y		+= octeon_ep_vf/
 obj-y		+= octeontx2/
 obj-y		+= prestera/
+
+# Bonnell: sky2 is on the Rx/Tx hot path, build it with -O3
+ifdef CONFIG_X86_BONNELL_HOT_O3
+CFLAGS_sky2.o += -O3
+endif
