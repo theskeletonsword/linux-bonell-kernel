@@ -309,8 +309,17 @@ void _ath_dbg(struct ath_common *common, enum ATH_DEBUG dbg_mask,
 	     const char *fmt, ...)
 {
 }
+
+/*
+ * Keep the printf format checking but never evaluate the arguments
+ * (they may be MMIO reads, e.g. REG_READ()), like no_printk() does.
+ */
 #define ath_dbg(common, dbg_mask, fmt, ...)				\
-	_ath_dbg(common, ATH_DBG_##dbg_mask, fmt, ##__VA_ARGS__)
+do {									\
+	if (0)								\
+		_ath_dbg(common, ATH_DBG_##dbg_mask, fmt,		\
+			 ##__VA_ARGS__);				\
+} while (0)
 
 #define ATH_DBG_WARN(foo, arg...) do {} while (0)
 #define ATH_DBG_WARN_ON_ONCE(foo) ({				\
