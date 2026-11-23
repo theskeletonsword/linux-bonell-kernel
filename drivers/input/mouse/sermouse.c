@@ -30,7 +30,7 @@ struct sermouse {
 	unsigned char count;
 	unsigned char type;
 	unsigned long last;
-	char phys[32];
+	char phys[40];
 };
 
 /*

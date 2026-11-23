@@ -799,7 +799,7 @@ static void logi_dj_recv_add_djhid_device(struct dj_receiver_dev *djrcv_dev,
 	/* Device index goes from 1 to 6, we need 3 bytes to store the
 	 * semicolon, the index, and a null terminator
 	 */
-	unsigned char tmpstr[3];
+	unsigned char tmpstr[5];
 
 	/* We are the only one ever adding a device, no need to lock */
 	if (djrcv_dev->paired_dj_devices[device_index]) {

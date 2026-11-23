@@ -2324,7 +2324,8 @@ static void wacom_update_name(struct wacom *wacom, const char *suffix)
 				hid_warn(wacom->hdev, "String overflow while assembling device name");
 			}
 		} else {
-			snprintf(name, sizeof(name), "Wacom %s", product_name);
+			if (snprintf(name, sizeof(name), "Wacom %s", product_name) >= sizeof(name))
+				hid_warn(wacom->hdev, "String overflow while assembling device name");
 		}
 
 		/* strip out excess whitespaces */

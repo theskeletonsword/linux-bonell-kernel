@@ -105,7 +105,7 @@ struct vsxxxaa {
 	unsigned char country;
 	unsigned char type;
 	char name[64];
-	char phys[32];
+	char phys[40];
 };
 
 static void vsxxxaa_drop_bytes(struct vsxxxaa *mouse, int num)
