@@ -200,7 +200,7 @@ struct ktstate {
 	struct task_struct *task;
 	wait_queue_head_t *waitq;
 	int (*fn) (int);
-	char name[12];
+	char name[20];
 	spinlock_t *lock;
 	int id;
 	int active;
