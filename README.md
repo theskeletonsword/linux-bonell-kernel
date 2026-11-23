@@ -1,4 +1,15 @@
-# Linux 7.3.4 for Intel Atom Bonnell (N450) — `perex`
+# Linux 7.3.4 for Intel Atom Bonnell / Saltwell (and the N450 `perex`)
+
+**Two profiles / Dos perfiles:**
+
+| profile | for | `.config` | built-in / modules |
+|---|---|---|---|
+| **generic** (`bonnell_defconfig`, default) | **any 64-bit Bonnell/Saltwell machine**: Atom 230/330, N4xx/N5xx (e.g. N450, N455, N550), D4xx/D5xx (D510, D525), Cedarview D2xxx/N2xxx | Alpine's full config + Bonnell tuning/hardening; only hardware no Bonnell board can host is dropped | 2055 / **3084** |
+| **perex** (`perex_defconfig`) | the author's N450 netbook | `localmodconfig` with perex's `lsmod` + perex-only trimming | 1483 / 112 |
+
+Code changes and compiler flags are identical in both; only the driver set
+differs. / El código y los flags son los mismos; sólo cambia el conjunto de
+drivers.
 
 > **ES** · Kernel Linux 7.3.4 compilado, endurecido y optimizado para la
 > microarquitectura **Intel Atom Bonnell** (Atom N450 de la máquina `perex`,
@@ -64,9 +75,18 @@ version 2** — `SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note`
 
 ## Resumen en español
 
-**Qué es.** Linux 7.3.4 upstream (primer commit, sin modificar) más una
-docena de commits pequeños y revisables (`git log --oneline 07b22d9..`) para el Atom N450 de `perex`. La documentación
-técnica detallada, en inglés, está en las secciones siguientes.
+**Qué es.** Linux 7.3.4 upstream (primer commit, sin modificar) más commits
+pequeños y revisables (`git log --oneline 07b22d9..`) para **cualquier Atom
+Bonnell/Saltwell de 64 bits**: 230/330, N4xx/N5xx, D4xx/D5xx y Cedarview
+D2xxx/N2xxx.
+- **Perfil genérico** (`bonnell_defconfig`, por defecto): todos los módulos
+  de Alpine (3084). Sólo se quita el hardware que ninguna placa Bonnell puede
+  alojar, como NICs de 10 GbE en adelante, HBAs SAS/FC o InfiniBand.
+- **Perfil perex** (`perex_defconfig`): recortado a los 112 módulos que usa
+  el N450 `perex`.
+
+La documentación técnica detallada, en inglés, está en las secciones
+siguientes.
 
 **Optimización para Bonnell.**
 - Nueva opción `CONFIG_X86_MARCH_BONNELL`: `-march=bonnell -mtune=bonnell`.
@@ -122,8 +142,12 @@ técnica detallada, en inglés, está en las secciones siguientes.
 - BBR + fq por defecto; netfilter sólo con nftables, como módulos.
 
 **Avisos y musl.**
-- Todo el kernel compila con 0 avisos con W=1 (el `-Wextra` curado del
-  kernel) más `CONFIG_WERROR`.
+- Los dos perfiles compilan con 0 avisos con W=1 (el `-Wextra` curado del
+  kernel) más `CONFIG_WERROR`, incluidos los 3084 módulos del genérico. Para
+  ello se corrigieron unos 30 avisos W=1 en drivers plausibles en un Bonnell
+  (wifi, alx, vlan, HID, input, SCSI de cinta, aoe/ublk, DVB-USB, usbip, ufs,
+  cliente SMB, amdgpu). Dos de ellos eran desbordamientos reales: `alx`
+  (`irq_lbl`) y el `memcpy` del cliente SMB1 frente a FORTIFY.
 - Se corrigieron 3 problemas upstream: `__printf` en bpf, truncado en
   elantech y `arch/x86/tools`, que no compilaba en musl.
 - `headers_install`: 1025 cabeceras probadas contra musl.
@@ -142,20 +166,18 @@ e [Install](#install-on-perex-alpine--instalación-en-perex).
 
 ### Commits
 
+`git log --oneline 07b22d9..` — main ones:
+
 ```
-07b22d94b Import Linux 7.3.4 (upstream release, unmodified)
 d3da9f4be x86/cpu: Add CONFIG_X86_MARCH_BONNELL for Intel Atom Bonnell (N450)
 de6b74803 x86/idt, x86/cpu: Lock in IDT/GDT cache-line layout, verify IST gates
-e762d0425 bpf: Add __printf() to bpf_diag_source()
-bb92a288e Input: elantech - size tp_phys for the longest serio phys string
 5a6d42662 net: sky2: Remove per-frame division, pipeline Rx prefetch, napi_weight
 a309c9ce7 wifi: ath: Do not evaluate ath_dbg() arguments when ATH_DEBUG=n
-5a0e37788 wifi: ath9k: Mark fatal/watchdog/reset interrupt paths unlikely()
 6ca495dce net, sky2, ath9k: Build the packet paths at -O3 (X86_BONNELL_HOT_O3)
 658bd6990 x86/tools: Fix insn_sanity/insn_decoder_test build on musl
-fcbb35e1a bonnell: Add reproducible Alpine/musl build, packaging and QEMU test tooling
-a4924b192 Add README.md, LICENSE (GPLv2 text) and ignore local outputs
-15699a25f bonnell: Add KVM measurement mode, fix self-test false positives
+c9a5a88c8 bonnell: Split into a generic Bonnell profile and the perex profile
+          + W=1 fixes: bpf, elantech, wifi, alx/vlan, Input/HID, scsi, block,
+            dvb-usb, usbip, ufs/smb, amdgpu
 ```
 
 ---
@@ -339,13 +361,16 @@ git clone <this repo> linux-bonnell && cd linux-bonnell
 # 1. hermetic toolchain (Alpine 3.24.4 pinned by digest: GCC 15.2, musl 1.2.6)
 podman build -t localhost/bonnell-kbuild:3.24.4 -f bonnell/container/Containerfile bonnell/container
 bash bonnell/scripts/incontainer.sh bash bonnell/scripts/audit-toolchain.sh   # AUDIT: PASS
-# 2. .config: perex stock -> localmodconfig(perex.lsmod) -> bonnell.config -> verify
-bash bonnell/scripts/mkconfig.sh bonnell      # "all N requested symbols applied"
-#    (or: cp arch/x86/configs/bonnell_defconfig ~/kbuild/bonnell/.config + olddefconfig)
-# 3. build out of tree in ~/kbuild/bonnell, W=1 + -Werror, -j16 (JOBS=24 max)
-bash bonnell/scripts/kmake.sh bonnell all
-# 4. deliverables in ./out (vmlinuz, modroot, hdrroot, initramfs, tarball)
+# 2. .config ("all N requested symbols applied")
+bash bonnell/scripts/mkconfig.sh                    # generic Bonnell -> ~/kbuild/bonnell
+PROFILE=perex bash bonnell/scripts/mkconfig.sh      # perex N450     -> ~/kbuild/perex
+#    (or: make bonnell_defconfig / perex_defconfig)
+# 3. build out of tree, W=1 + -Werror, -j16 (JOBS=24 max)
+bash bonnell/scripts/kmake.sh bonnell all           # ~25 min (3084 modules)
+bash bonnell/scripts/kmake.sh perex all             # ~6 min
+# 4. deliverables: ./out (generic) and ./out/perex
 bash bonnell/scripts/package.sh bonnell
+bash bonnell/scripts/package.sh perex perex
 # 5. QEMU validation and benchmark
 bash bonnell/scripts/qemu-test.sh final out/vmlinuz-bonnell out/initramfs-bonnell.cpio.gz ~/kbuild/bonnell/System.map 1
 cat out/logs/final/analysis.txt
@@ -358,7 +383,9 @@ ACCEL=kvm bash bonnell/scripts/bench.sh 5 bonnell:bonnell:
 The container runs with `--network=none`; the build never writes to the
 source tree (`O=` builds), so several builds can share it.
 
-### Deliverables in `out/` (git-ignored)
+### Deliverables in `out/` (generic) and `out/perex/` (git-ignored)
+
+The generic tarball is ~80 MB (modules 262 MB unpacked); perex's ~20 MB.
 
 | file | content |
 |---|---|
@@ -409,7 +436,7 @@ fixed up by design from bugs.
 
 | test | result |
 |---|---|
-| `7.3.4-bonnell` on the N450 model | **CLEAN**: 0 triple faults, 0 nested exceptions, 0 kernel `#UD`/`#GP`/`#DF`, self test **PASS** |
+| generic and perex profiles on the N450 model | **CLEAN** (both): 0 triple faults, 0 nested exceptions, 0 kernel `#UD`/`#GP`/`#DF`, self test **PASS** |
 | kernel exceptions seen | only benign: user `#PF` (demand paging), kernel `#PF` on user addresses (uaccess/exec), 3 early-boot `#PF` resolved by `early_make_pgtable`, 1 `#PF` with an `__ex_table` fixup, `#BP` from text patching |
 | CPU vulnerabilities (sysfs) | 19/19 *Not affected* on Bonnell; taint 0 |
 | self test | sky2 + ath9k load, vermagic `… BONNELL`, ext4 on AHCI (built-in path) mount/read/write/verify after `drop_caches`, ext4 via loop, overlayfs copy-up, tmpfs/devtmpfs/proc/sysfs, BBR + fq defaults, loopback ping, IST gates OK |
